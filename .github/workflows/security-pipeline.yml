@@ -1,0 +1,208 @@
+name: DevSecOps Pipeline - Scan then Deploy
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  TF_VERSION: "1.6.0"
+
+jobs:
+
+  # ==========================================================
+  # STAGE 1 - JOB 1
+  # Secret Scanning
+  # First thing that runs — if secrets found, stop everything
+  # ==========================================================
+  secret-scan:
+    name: "Stage 1 - Secret Scan"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for hardcoded secrets
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          scanners: "secret"
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"        # hard fail — secrets found
+                                # means pipeline stops here
+                                # nothing deploys ever
+
+  # ==========================================================
+  # STAGE 1 - JOB 2
+  # Infrastructure Security Scanning
+  # Runs only if secret scan passed
+  # ==========================================================
+  iac-scan:
+    name: "Stage 1 - IaC Security Scan"
+    runs-on: ubuntu-latest
+    needs: secret-scan          # blocked until secret-scan passes
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Checkov — scans for misconfigurations
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: terraform
+          soft_fail: false      # hard fail — misconfiguration
+                                # found means no deployment
+
+      # tfsec — second scanner different ruleset
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          working_directory: .
+          soft_fail: false      # hard fail
+
+      # Trivy — third scanner catches what others miss
+      - name: Run Trivy IaC scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          scanners: "misconfig"
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"        # hard fail
+
+  # ==========================================================
+  # STAGE 1 - JOB 3
+  # Terraform Validation
+  # Checks if code is syntactically correct
+  # Runs only if IaC scan passed
+  # ==========================================================
+  terraform-validate:
+    name: "Stage 1 - Terraform Validate"
+    runs-on: ubuntu-latest
+    needs: iac-scan             # blocked until iac-scan passes
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # init with real backend — connects to AWS for state
+      - name: Terraform Init
+        run: terraform init
+
+      # validate syntax — no AWS resources touched
+      - name: Terraform Validate
+        run: terraform validate
+
+      # format check — warns but doesnt block
+      - name: Terraform Format Check
+        run: terraform fmt -check -diff
+        continue-on-error: true
+
+  # ==========================================================
+  # STAGE 2 - JOB 4
+  # Terraform Plan
+  # Shows exactly what will change in AWS
+  # Runs only if ALL Stage 1 jobs passed
+  # ==========================================================
+  terraform-plan:
+    name: "Stage 2 - Terraform Plan"
+    runs-on: ubuntu-latest
+    needs: terraform-validate   # blocked until ALL stage 1 passes
+                                # this is the gate between
+                                # scanning and deploying
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      # plan — shows what will happen, touches nothing
+      # -out saves plan to file for apply job to use
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      # save plan file to pass to apply job
+      - name: Save plan file
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: tfplan
+
+  # ==========================================================
+  # STAGE 2 - JOB 5
+  # Terraform Apply — actual deployment
+  # Only runs if plan passed
+  # Requires YOUR manual approval before running
+  # You review the plan then click approve
+  # ==========================================================
+  terraform-apply:
+    name: "Stage 2 - Deploy to AWS"
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    environment: production     # pauses here and emails you
+                                # you review and click approve
+                                # only then does it deploy
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      # download the exact plan file from Job 4
+      - name: Download plan file
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+
+      # apply that exact plan — no surprises
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
