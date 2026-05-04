@@ -108,7 +108,7 @@ resource "aws_iam_role_policy" "cloudtrail_policy" {
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = "*"
+        Resource = "${aws_cloudwatch_log_group.cloudtrail.arn}:*"
       }
     ]
   })
