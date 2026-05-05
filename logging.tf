@@ -190,3 +190,60 @@ resource "aws_kms_alias" "cloudtrail_key" {
   target_key_id = aws_kms_key.cloudtrail_key.key_id
 }
 data "aws_caller_identity" "current" {}
+resource "aws_kms_key" "cloudwatch_key" {
+  description             = "KMS key for CloudWatch log encryption"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow CloudWatch Logs"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${var.aws_region}.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name = "${var.environment}-cloudwatch-key"
+  }
+}
+resource "aws_cloudwatch_log_group" "flow_logs" {
+  name              = "/aws/vpc/${var.environment}/flow-logs"
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.cloudwatch_key.arn
+
+  tags = {
+    Name = "${var.environment}-flow-logs"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "cloudtrail" {
+  name              = "/aws/cloudtrail/${var.environment}"
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.cloudwatch_key.arn
+
+  tags = {
+    Name = "${var.environment}-cloudtrail-logs"
+  }
+}
