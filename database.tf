@@ -54,3 +54,7 @@ resource "aws_db_instance" "main" {
     Name = "${var.environment}-mysql-db"
   }
 }
+resource "aws_db_instance" "default" {
+  # ... other config ...
+  copy_tags_to_snapshot = true
+}
