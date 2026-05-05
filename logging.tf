@@ -189,3 +189,4 @@ resource "aws_kms_alias" "cloudtrail_key" {
   name          = "alias/${var.environment}-cloudtrail-key"
   target_key_id = aws_kms_key.cloudtrail_key.key_id
 }
+data "aws_caller_identity" "current" {}
