@@ -1,7 +1,4 @@
-# -----------------------------------------------------------
-# S3 bucket — application file storage
-# accessed by EC2 via IAM role — zero hardcoded credentials
-# -----------------------------------------------------------
+# 1. The Main S3 Bucket
 resource "aws_s3_bucket" "app_bucket" {
   bucket        = var.bucket_name
   force_destroy = true
@@ -11,6 +8,7 @@ resource "aws_s3_bucket" "app_bucket" {
   }
 }
 
+# 2. Block Public Access (Security Best Practice)
 resource "aws_s3_bucket_public_access_block" "app_bucket" {
   bucket                  = aws_s3_bucket.app_bucket.id
   block_public_acls       = true
@@ -19,6 +17,7 @@ resource "aws_s3_bucket_public_access_block" "app_bucket" {
   restrict_public_buckets = true
 }
 
+# 3. Enable Versioning (Required for Replication)
 resource "aws_s3_bucket_versioning" "app_bucket" {
   bucket = aws_s3_bucket.app_bucket.id
   versioning_configuration {
@@ -26,16 +25,48 @@ resource "aws_s3_bucket_versioning" "app_bucket" {
   }
 }
 
+# 4. FIX CKV_AWS_145: Encrypt with KMS
 resource "aws_s3_bucket_server_side_encryption_configuration" "app_bucket" {
   bucket = aws_s3_bucket.app_bucket.id
+
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      # Ensure aws_kms_key.my_key is defined in your variables/kms.tf
+      kms_master_key_id = aws_kms_key.my_key.arn 
+      sse_algorithm     = "aws:kms"
     }
     bucket_key_enabled = true
   }
 }
 
+# 5. FIX CKV_AWS_18: Enable Access Logging
+# Note: You must have a separate 'log_bucket' defined elsewhere
+resource "aws_s3_bucket_logging" "app_bucket" {
+  bucket = aws_s3_bucket.app_bucket.id
+
+  target_bucket = aws_s3_bucket.log_bucket.id
+  target_prefix = "log/app_bucket/"
+}
+
+# 6. FIX CKV_AWS_144: Cross-Region Replication
+resource "aws_s3_bucket_replication_configuration" "replication" {
+  # Ensure aws_iam_role.replication and aws_s3_bucket.destination are defined
+  depends_on = [aws_s3_bucket_versioning.app_bucket]
+  role       = aws_iam_role.replication.arn
+  bucket     = aws_s3_bucket.app_bucket.id
+
+  rules {
+    id     = "replicate-all"
+    status = "Enabled"
+
+    destination {
+      bucket        = aws_s3_bucket.destination.arn
+      storage_class = "STANDARD"
+    }
+  }
+}
+
+# 7. Lifecycle Configuration
 resource "aws_s3_bucket_lifecycle_configuration" "app_bucket" {
   bucket = aws_s3_bucket.app_bucket.id
 
@@ -54,119 +85,14 @@ resource "aws_s3_bucket_lifecycle_configuration" "app_bucket" {
     }
   }
 }
-resource "aws_sns_topic" "s3_notifications" {
-  name              = "${var.environment}-s3-notifications"
-  kms_master_key_id = aws_kms_key.cloudwatch_key.arn
 
-  tags = {
-    Name = "${var.environment}-s3-notifications"
-  }
-}
-
-resource "aws_sns_topic_policy" "s3_notifications" {
-  arn = aws_sns_topic.s3_notifications.arn
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect    = "Allow"
-        Principal = { Service = "s3.amazonaws.com" }
-        Action    = "SNS:Publish"
-        Resource  = aws_sns_topic.s3_notifications.arn
-        Condition = {
-          ArnLike = {
-            "aws:SourceArn" = aws_s3_bucket.app_bucket.arn
-          }
-        }
-      }
-    ]
-  })
-}
-
+# 8. Notifications (SNS and EventBridge)
 resource "aws_s3_bucket_notification" "app_bucket" {
-  bucket = aws_s3_bucket.app_bucket.id
+  bucket      = aws_s3_bucket.app_bucket.id
+  eventbridge = true 
 
   topic {
     topic_arn = aws_sns_topic.s3_notifications.arn
     events    = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"]
   }
-}
-resource "aws_s3_bucket_server_side_encryption_configuration" "example" {
-  bucket = aws_s3_bucket.your_bucket.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      kms_master_key_id = aws_kms_key.mykey.arn
-      sse_algorithm     = "aws:kms"
-    }
-  }
-}
-resource "aws_s3_bucket_logging" "example" {
-  bucket = aws_s3_bucket.your_bucket.id
-
-  target_bucket = aws_s3_bucket.log_bucket.id
-  target_prefix = "log/"
-}
-resource "aws_s3_bucket_notification" "bucket_notification" {
-  bucket = aws_s3_bucket.your_bucket.id
-
-  topic {
-    topic_arn     = aws_sns_topic.topic.arn
-    events        = ["s3:ObjectCreated:*"]
-  }
-}
-resource "aws_s3_bucket_server_side_encryption_configuration" "example" {
-  bucket = aws_s3_bucket.my_bucket.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      kms_master_key_id = aws_kms_key.my_key.arn
-      sse_algorithm     = "aws:kms"
-    }
-  }
-}
-resource "aws_s3_bucket_logging" "example" {
-  bucket = aws_s3_bucket.my_bucket.id
-
-  target_bucket = aws_s3_bucket.log_bucket.id
-  target_prefix = "log/"
-}
-# Replication (Requires versioning and an IAM role)
-resource "aws_s3_bucket_replication_configuration" "replication" {
-  role   = aws_iam_role.replication.arn
-  bucket = aws_s3_bucket.my_bucket.id
-
-  rules {
-    status = "Enabled"
-    destination {
-      bucket        = aws_s3_bucket.destination.arn
-      storage_class = "STANDARD"
-    }
-  }
-}
-
-# Notifications (Triggers EventBridge, SNS, or SQS)
-resource "aws_s3_bucket_notification" "bucket_notification" {
-  bucket      = aws_s3_bucket.my_bucket.id
-  eventbridge = true # Simplest way to satisfy the check
-}
-# Replication (Requires versioning and an IAM role)
-resource "aws_s3_bucket_replication_configuration" "replication" {
-  role   = aws_iam_role.replication.arn
-  bucket = aws_s3_bucket.my_bucket.id
-
-  rules {
-    status = "Enabled"
-    destination {
-      bucket        = aws_s3_bucket.destination.arn
-      storage_class = "STANDARD"
-    }
-  }
-}
-
-# Notifications (Triggers EventBridge, SNS, or SQS)
-resource "aws_s3_bucket_notification" "bucket_notification" {
-  bucket      = aws_s3_bucket.my_bucket.id
-  eventbridge = true # Simplest way to satisfy the check
 }
