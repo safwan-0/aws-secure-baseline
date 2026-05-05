@@ -92,3 +92,27 @@ resource "aws_s3_bucket_notification" "app_bucket" {
     events    = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"]
   }
 }
+resource "aws_s3_bucket_server_side_encryption_configuration" "example" {
+  bucket = aws_s3_bucket.your_bucket.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.mykey.arn
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+resource "aws_s3_bucket_logging" "example" {
+  bucket = aws_s3_bucket.your_bucket.id
+
+  target_bucket = aws_s3_bucket.log_bucket.id
+  target_prefix = "log/"
+}
+resource "aws_s3_bucket_notification" "bucket_notification" {
+  bucket = aws_s3_bucket.your_bucket.id
+
+  topic {
+    topic_arn     = aws_sns_topic.topic.arn
+    events        = ["s3:ObjectCreated:*"]
+  }
+}
