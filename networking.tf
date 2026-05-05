@@ -138,3 +138,13 @@ resource "aws_route_table_association" "private_2" {
   subnet_id      = aws_subnet.private_2.id
   route_table_id = aws_route_table.private.id
 }
+resource "aws_default_security_group" "default" {
+  vpc_id = aws_vpc.main.id
+  # Leave ingress/egress blocks empty to restrict all traffic
+}
+resource "aws_flow_log" "example" {
+  iam_role_arn    = aws_iam_role.example.arn
+  log_destination = aws_cloudwatch_log_group.example.arn
+  traffic_type    = "ALL"
+  vpc_id          = aws_vpc.main.id
+}
