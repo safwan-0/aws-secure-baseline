@@ -61,3 +61,35 @@ resource "aws_security_group" "rds" {
     Name = "${var.environment}-rds-sg"
   }
 }
+# EC2 security group egress — replace open egress with specific rules
+egress {
+  description = "HTTPS outbound to internet"
+  from_port   = 443
+  to_port     = 443
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+}
+
+egress {
+  description = "HTTP outbound for package updates"
+  from_port   = 80
+  to_port     = 80
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+}
+
+egress {
+  description = "MySQL outbound to RDS"
+  from_port   = 3306
+  to_port     = 3306
+  protocol    = "tcp"
+  cidr_blocks = [var.private_subnet_cidr]
+}
+# RDS security group egress — RDS doesnt need internet access
+egress {
+  description = "MySQL responses back to EC2 only"
+  from_port   = 3306
+  to_port     = 3306
+  protocol    = "tcp"
+  cidr_blocks = [var.public_subnet_cidr]
+}
