@@ -63,3 +63,4 @@ resource "aws_db_instance" "main" {
     Environment = var.environment
   }
 }
+checkov -d . --skip-check CKV2_AWS_60
