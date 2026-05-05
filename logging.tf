@@ -5,7 +5,8 @@
 resource "aws_cloudwatch_log_group" "flow_logs" {
   name              = "/aws/vpc/${var.environment}/flow-logs"
   retention_in_days = 30
-
+kms_key_id        = aws_kms_key.cloudwatch_key.arn
+retention_in_days = 365
   tags = {
     Name = "${var.environment}-flow-logs"
   }
@@ -68,6 +69,8 @@ resource "aws_cloudwatch_log_group" "cloudtrail" {
   name              = "/aws/cloudtrail/${var.environment}"
   retention_in_days = 90
 
+kms_key_id        = aws_kms_key.cloudwatch_key.arn
+retention_in_days = 365
   tags = {
     Name = "${var.environment}-cloudtrail-logs"
   }
@@ -143,6 +146,7 @@ tags = {
 }
 resource "aws_sns_topic" "cloudtrail_alerts" {
   name = "${var.environment}-cloudtrail-alerts"
+ kms_master_key_id = aws_kms_key.cloudwatch_key.arn
 
   tags = {
     Name = "${var.environment}-cloudtrail-alerts"
