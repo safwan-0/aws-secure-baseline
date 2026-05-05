@@ -1,6 +1,5 @@
 # -----------------------------------------------------------
 # Subnet group — RDS needs to know which subnets it can use
-# both subnets are private — database never touches public subnet
 # -----------------------------------------------------------
 resource "aws_db_subnet_group" "main" {
   name        = "${var.environment}-db-subnet-group"
@@ -25,42 +24,52 @@ resource "aws_db_instance" "main" {
   max_allocated_storage               = 100
   iam_database_authentication_enabled = true
   auto_minor_version_upgrade          = true
-  monitoring_interval                 = 60
-  monitoring_role_arn                 = aws_iam_role.rds_monitoring_role.arn
-  db_name                             = "appdb"
-  username                            = var.db_username
-  password                            = var.db_password
+  
+  # Monitoring
+  monitoring_interval = 60
+  monitoring_role_arn = aws_iam_role.rds_monitoring_role.arn
+  
+  # Credentials
+  db_name  = "appdb"
+  username = var.db_username
+  password = var.db_password
 
+  # Network
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
-  # --- CRITICAL SECURITY & COMPLIANCE FIXES ---
+  # --- SECURITY & COMPLIANCE FIXES ---
   
-  # FIX for CKV2_AWS_60: Ensure RDS instance with copy tags to snapshots is enabled
+  # FIX for CKV2_AWS_60: copy tags to snapshots
   copy_tags_to_snapshot = true
 
-  # Security settings
+  # Encryption & Access
   publicly_accessible = false
   storage_encrypted   = true
-  multi_az            = true
-  deletion_protection = true # Set to true to prevent accidental CLI/Console deletion
+  # Best practice: link to a specific KMS key if required by your org
+  # kms_key_id        = aws_kms_key.database_key.arn 
 
-  # Performance monitoring (Best Practice)
+  # Availability
+  multi_az            = true
+  deletion_protection = true
+
+  # Performance
   performance_insights_enabled          = true
   performance_insights_retention_period = 7
+  # FIX: performance insights usually require a KMS key to be fully compliant
+  performance_insights_kms_key_id       = aws_kms_key.my_key.arn
 
   # --- BACKUP & MAINTENANCE ---
   backup_retention_period = 7
   backup_window           = "03:00-04:00"
-  maintenance_window      = "Mon:04:00-Mon:05:00"
+  maintenance_window      = "mon:04:00-mon:05:00" # Use lowercase for 'mon' to avoid provider quirks
 
   # Final snapshot handling
-  # Note: Set to false for production to ensure a backup exists before deletion
-  skip_final_snapshot = true 
+  skip_final_snapshot = false # Changed to false for production safety
+  final_snapshot_identifier = "${var.environment}-mysql-db-final-snapshot"
 
   tags = {
     Name        = "${var.environment}-mysql-db"
     Environment = var.environment
   }
 }
-checkov -d . --skip-check CKV2_AWS_60
