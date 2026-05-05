@@ -54,3 +54,41 @@ resource "aws_s3_bucket_lifecycle_configuration" "app_bucket" {
     }
   }
 }
+resource "aws_sns_topic" "s3_notifications" {
+  name              = "${var.environment}-s3-notifications"
+  kms_master_key_id = aws_kms_key.cloudwatch_key.arn
+
+  tags = {
+    Name = "${var.environment}-s3-notifications"
+  }
+}
+
+resource "aws_sns_topic_policy" "s3_notifications" {
+  arn = aws_sns_topic.s3_notifications.arn
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { Service = "s3.amazonaws.com" }
+        Action    = "SNS:Publish"
+        Resource  = aws_sns_topic.s3_notifications.arn
+        Condition = {
+          ArnLike = {
+            "aws:SourceArn" = aws_s3_bucket.app_bucket.arn
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_s3_bucket_notification" "app_bucket" {
+  bucket = aws_s3_bucket.app_bucket.id
+
+  topic {
+    topic_arn = aws_sns_topic.s3_notifications.arn
+    events    = ["s3:ObjectCreated:*", "s3:ObjectRemoved:*"]
+  }
+}
