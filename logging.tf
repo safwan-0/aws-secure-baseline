@@ -250,4 +250,22 @@ resource "aws_cloudwatch_log_group" "cloudtrail" {
   tags = {
     Name = "${var.environment}-cloudtrail-logs"
   }
+}resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail_bucket" {
+  bucket = aws_s3_bucket.cloudtrail_bucket.id
+
+  rule {
+    id     = "expire-old-logs"
+    status = "Enabled"
+
+    filter {}
+
+    expiration {
+      days = 365
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
 }
+
