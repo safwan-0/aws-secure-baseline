@@ -148,3 +148,8 @@ resource "aws_flow_log" "example" {
   traffic_type    = "ALL"
   vpc_id          = aws_vpc.main.id
 }
+}
+resource "aws_default_security_group" "default" {
+  vpc_id = aws_vpc.main.id
+  # Leave ingress and egress blocks empty to restrict all traffic
+}
