@@ -132,10 +132,60 @@ resource "aws_cloudtrail" "main" {
   enable_log_file_validation    = true
   cloud_watch_logs_group_arn    = "${aws_cloudwatch_log_group.cloudtrail.arn}:*"
   cloud_watch_logs_role_arn     = aws_iam_role.cloudtrail_role.arn
+  sns_topic_name = aws_sns_topic.cloudtrail_alerts.name
+  kms_key_id = aws_kms_key.cloudtrail_key.arn  
 
-  tags = {
+tags = {
     Name = "${var.environment}-cloudtrail"
   }
 
   depends_on = [aws_s3_bucket_policy.cloudtrail_bucket]
+}
+resource "aws_sns_topic" "cloudtrail_alerts" {
+  name = "${var.environment}-cloudtrail-alerts"
+
+  tags = {
+    Name = "${var.environment}-cloudtrail-alerts"
+  }
+}
+resource "aws_kms_key" "cloudtrail_key" {
+  description             = "KMS key for CloudTrail encryption"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow CloudTrail to encrypt logs"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+        Action = [
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name = "${var.environment}-cloudtrail-key"
+  }
+}
+
+resource "aws_kms_alias" "cloudtrail_key" {
+  name          = "alias/${var.environment}-cloudtrail-key"
+  target_key_id = aws_kms_key.cloudtrail_key.key_id
 }
