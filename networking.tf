@@ -23,7 +23,7 @@ resource "aws_internet_gateway" "main" {
 }
 
 # -----------------------------------------------------------
-# Public subnet — EC2 lives here
+# Subnets
 # -----------------------------------------------------------
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
@@ -37,9 +37,6 @@ resource "aws_subnet" "public" {
   }
 }
 
-# -----------------------------------------------------------
-# Private subnets — RDS lives here, internet cannot reach in
-# -----------------------------------------------------------
 resource "aws_subnet" "private" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = var.private_subnet_cidr
@@ -65,7 +62,7 @@ resource "aws_subnet" "private_2" {
 }
 
 # -----------------------------------------------------------
-# Elastic IP — fixed public IP address for NAT Gateway
+# NAT Gateway Infrastructure
 # -----------------------------------------------------------
 resource "aws_eip" "nat" {
   domain     = "vpc"
@@ -76,10 +73,6 @@ resource "aws_eip" "nat" {
   }
 }
 
-# -----------------------------------------------------------
-# NAT Gateway — lets private subnet reach internet outward only
-# sits in public subnet because it needs internet access itself
-# -----------------------------------------------------------
 resource "aws_nat_gateway" "main" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public.id
@@ -91,10 +84,8 @@ resource "aws_nat_gateway" "main" {
 }
 
 # -----------------------------------------------------------
-# Route tables — define where traffic goes
+# Route Tables
 # -----------------------------------------------------------
-
-# Public route table — traffic goes to internet gateway
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -108,8 +99,6 @@ resource "aws_route_table" "public" {
   }
 }
 
-# Private route table — traffic goes to NAT gateway
-# internet can reach OUT but cannot reach IN
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
@@ -123,7 +112,6 @@ resource "aws_route_table" "private" {
   }
 }
 
-# Connect route tables to their subnets
 resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
@@ -138,18 +126,19 @@ resource "aws_route_table_association" "private_2" {
   subnet_id      = aws_subnet.private_2.id
   route_table_id = aws_route_table.private.id
 }
+
+# -----------------------------------------------------------
+# SECURITY SCAN FIXES
+# -----------------------------------------------------------
+
+# FIX CKV2_AWS_12: Restrict the default security group
+# Leaving ingress/egress out explicitly denies all traffic
 resource "aws_default_security_group" "default" {
   vpc_id = aws_vpc.main.id
-  # Leave ingress/egress blocks empty to restrict all traffic
+
+  tags = {
+    Name = "${var.environment}-default-sg-restricted"
+  }
 }
-resource "aws_flow_log" "example" {
-  iam_role_arn    = aws_iam_role.example.arn
-  log_destination = aws_cloudwatch_log_group.example.arn
-  traffic_type    = "ALL"
-  vpc_id          = aws_vpc.main.id
-}
-}
-resource "aws_default_security_group" "default" {
-  vpc_id = aws_vpc.main.id
-  # Leave ingress and egress blocks empty to restrict all traffic
-}
+
+# FIX CKV2_AWS_1
