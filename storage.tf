@@ -116,3 +116,57 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
     events        = ["s3:ObjectCreated:*"]
   }
 }
+resource "aws_s3_bucket_server_side_encryption_configuration" "example" {
+  bucket = aws_s3_bucket.my_bucket.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.my_key.arn
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+resource "aws_s3_bucket_logging" "example" {
+  bucket = aws_s3_bucket.my_bucket.id
+
+  target_bucket = aws_s3_bucket.log_bucket.id
+  target_prefix = "log/"
+}
+# Replication (Requires versioning and an IAM role)
+resource "aws_s3_bucket_replication_configuration" "replication" {
+  role   = aws_iam_role.replication.arn
+  bucket = aws_s3_bucket.my_bucket.id
+
+  rules {
+    status = "Enabled"
+    destination {
+      bucket        = aws_s3_bucket.destination.arn
+      storage_class = "STANDARD"
+    }
+  }
+}
+
+# Notifications (Triggers EventBridge, SNS, or SQS)
+resource "aws_s3_bucket_notification" "bucket_notification" {
+  bucket      = aws_s3_bucket.my_bucket.id
+  eventbridge = true # Simplest way to satisfy the check
+}
+# Replication (Requires versioning and an IAM role)
+resource "aws_s3_bucket_replication_configuration" "replication" {
+  role   = aws_iam_role.replication.arn
+  bucket = aws_s3_bucket.my_bucket.id
+
+  rules {
+    status = "Enabled"
+    destination {
+      bucket        = aws_s3_bucket.destination.arn
+      storage_class = "STANDARD"
+    }
+  }
+}
+
+# Notifications (Triggers EventBridge, SNS, or SQS)
+resource "aws_s3_bucket_notification" "bucket_notification" {
+  bucket      = aws_s3_bucket.my_bucket.id
+  eventbridge = true # Simplest way to satisfy the check
+}
